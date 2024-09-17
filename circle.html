@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>The Neon Circle</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #1e1e1e;
+        }
+        canvas {
+            display: block;
+        }
+        button {
+            position: absolute;
+            top: 60%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 15px 30px;
+            font-size: 24px;
+            display: none; /* Hidden by default */
+            z-index: 1;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <button id="restartButton">Restart</button>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const restartButton = document.getElementById('restartButton');
+
+        // Set canvas to full window size
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        });
+
+        let highScore = localStorage.getItem('highScore') || 0;
+
+        // Circle properties
+        let circle = {
+            x: canvas.width / 4, // Fixed x position
+            y: canvas.height / 2,
+            radius: 50,
+            minRadius: 20,
+            maxRadius: 80,
+            particles: [],
+            particleCount: 50,
+            shrinking: false,
+            expanding: false,
+            angleOffset: 0, // For animation
+            hue: 0, // For color transition
+        };
+
+        function createParticles() {
+            circle.particles = [];
+            for (let i = 0; i < circle.particleCount; i++) {
+                let angle = (Math.PI * 2 * i) / circle.particleCount;
+                circle.particles.push({
+                    angle: angle,
+                    size: 5,
+                    color: `hsl(${(circle.hue + i * 5) % 360}, 100%, 50%)`,
+                });
+            }
+        }
+
+        function drawCircle() {
+            circle.angleOffset += 0.02; // Adjust speed of rotation
+            circle.hue = (circle.hue + 1) % 360; // Increment hue for color change
+
+            circle.particles.forEach((particle, index) => {
+                // Update particle angle for animation
+                particle.angle += 0.02;
+                // Update particle color for dynamic effect
+                particle.color = `hsl(${(circle.hue + index * 5) % 360}, 100%, 50%)`;
+
+                let x = circle.x + circle.radius * Math.cos(particle.angle + circle.angleOffset);
+                let y = circle.y + circle.radius * Math.sin(particle.angle + circle.angleOffset);
+
+                // Draw particle with glow effect
+                ctx.beginPath();
+                ctx.arc(x, y, particle.size, 0, Math.PI * 2);
+                ctx.fillStyle = particle.color;
+                ctx.shadowColor = particle.color;
+                ctx.shadowBlur = 10;
+                ctx.fill();
+                ctx.closePath();
+                ctx.shadowBlur = 0; // Reset shadowBlur for other drawings
+            });
+        }
+
+        // Mouse events
+        let mouse = {
+            isPressed: false,
+            y: circle.y,
+        };
+
+        canvas.addEventListener('mousedown', () => {
+            mouse.isPressed = true;
+        });
+
+        canvas.addEventListener('mouseup', () => {
+            mouse.isPressed = false;
+        });
+
+        canvas.addEventListener('mousemove', (event) => {
+            // Restrict movement to vertical axis
+            mouse.y = event.clientY;
+        });
+
+        function updateCircle() {
+            circle.y = mouse.y;
+
+            if (mouse.isPressed && !circle.expanding) {
+                circle.shrinking = true;
+                circle.radius -= 1; // Slow down shrink rate
+                if (circle.radius <= circle.minRadius) {
+                    circle.radius = circle.minRadius;
+                    circle.shrinking = false;
+                    circle.expanding = true; // Start expanding automatically
+                }
+            } else if (circle.expanding) {
+                circle.radius += 0.5; // Slow expand rate
+                if (circle.radius >= circle.maxRadius) {
+                    circle.radius = circle.maxRadius;
+                    circle.expanding = false;
+                }
+            } else if (!mouse.isPressed && !circle.expanding) {
+                circle.radius += 2;
+                if (circle.radius > circle.maxRadius) circle.radius = circle.maxRadius;
+            }
+        }
+
+        // Bars
+        let bars = [];
+        let barSpeed = 2;
+        let barInterval = 1500; // milliseconds
+        let barTimer;
+
+        function createBar() {
+            let holeHeight = 150;
+            let holePosition = Math.random() * (canvas.height - holeHeight);
+
+            bars.push({
+                x: canvas.width,
+                y: 0,
+                width: 20,
+                height: canvas.height,
+                holeY: holePosition,
+                holeHeight: holeHeight,
+                passed: false, // For scoring when passing bar
+            });
+        }
+
+        function startBarTimer() {
+            barTimer = setInterval(createBar, barInterval);
+        }
+
+        function stopBarTimer() {
+            clearInterval(barTimer);
+        }
+
+        startBarTimer();
+
+        function updateBars() {
+            bars.forEach((bar) => {
+                bar.x -= barSpeed;
+            });
+
+            // Remove off-screen bars
+            bars = bars.filter((bar) => bar.x + bar.width >= 0);
+        }
+
+        function drawBars() {
+            bars.forEach((bar) => {
+                // Top part of the bar
+                ctx.fillStyle = '#444';
+                ctx.fillRect(bar.x, bar.y, bar.width, bar.holeY);
+
+                // Bottom part of the bar
+                ctx.fillRect(bar.x, bar.holeY + bar.holeHeight, bar.width, canvas.height - bar.holeY - bar.holeHeight);
+            });
+        }
+
+        // Collectibles (Coins and Diamonds)
+        let collectibles = [];
+        let collectibleSpeed = barSpeed;
+        let collectibleInterval = 1000;
+        let collectibleTimer;
+
+        function createCollectible() {
+            let type; // 'coin', 'diamond', 'superDiamond'
+            let rarityRoll = Math.random();
+
+            if (rarityRoll < 0.02) {
+                // 2% chance for super rare diamond
+                type = 'superDiamond';
+            } else if (rarityRoll < 0.1) {
+                // 8% chance for rare diamond
+                type = 'diamond';
+            } else {
+                // 90% chance for coin
+                type = 'coin';
+            }
+
+            let collectible = {
+                x: canvas.width + Math.random() * 200, // Spawn ahead
+                y: Math.random() * canvas.height,
+                radius: 10,
+                collected: false,
+                angle: 0, // For rotation
+                type: type,
+            };
+
+            let buffer = 20; // Define the buffer zone
+
+			let isInBar = bars.some((bar) => {
+				return (
+					collectible.x + collectible.radius + buffer > bar.x &&
+					collectible.x - collectible.radius - buffer < bar.x + bar.width &&
+					(collectible.y - collectible.radius - buffer < bar.holeY ||
+					 collectible.y + collectible.radius + buffer > bar.holeY + bar.holeHeight)
+				);
+			});
+
+            if (!isInBar) {
+                collectibles.push(collectible);
+            }
+        }
+
+        function startCollectibleTimer() {
+            collectibleTimer = setInterval(createCollectible, collectibleInterval);
+        }
+
+        function stopCollectibleTimer() {
+            clearInterval(collectibleTimer);
+        }
+
+        startCollectibleTimer();
+
+        function updateCollectibles() {
+            collectibles.forEach((collectible) => {
+                collectible.x -= collectibleSpeed;
+                collectible.angle += 0.05; // Rotate the collectible
+            });
+
+            // Remove off-screen or collected collectibles
+            collectibles = collectibles.filter((collectible) => collectible.x + collectible.radius >= 0 && !collectible.collected);
+        }
+
+        function drawCollectibles() {
+            collectibles.forEach((collectible) => {
+                ctx.save();
+                ctx.translate(collectible.x, collectible.y);
+                ctx.rotate(collectible.angle);
+
+                // Draw based on type
+                if (collectible.type === 'coin') {
+                    // Draw coin
+                    ctx.beginPath();
+                    ctx.arc(0, 0, collectible.radius, 0, Math.PI * 2);
+                    ctx.fillStyle = 'gold';
+                    ctx.fill();
+                    ctx.closePath();
+                } else if (collectible.type === 'diamond') {
+                    // Draw rare diamond
+                    ctx.beginPath();
+                    ctx.moveTo(0, -collectible.radius);
+                    ctx.lineTo(collectible.radius, 0);
+                    ctx.lineTo(0, collectible.radius);
+                    ctx.lineTo(-collectible.radius, 0);
+                    ctx.closePath();
+                    ctx.fillStyle = 'cyan';
+                    ctx.fill();
+                } else if (collectible.type === 'superDiamond') {
+                    // Draw super rare diamond
+                    ctx.beginPath();
+                    ctx.moveTo(0, -collectible.radius);
+                    ctx.lineTo(collectible.radius, 0);
+                    ctx.lineTo(0, collectible.radius);
+                    ctx.lineTo(-collectible.radius, 0);
+                    ctx.closePath();
+                    ctx.fillStyle = 'magenta';
+                    ctx.fill();
+                }
+
+                ctx.restore();
+            });
+        }
+
+        let score = 0;
+
+        function checkCollectibleCollection() {
+            collectibles.forEach((collectible) => {
+                let dx = circle.x - collectible.x;
+                let dy = circle.y - collectible.y;
+                let distance = Math.hypot(dx, dy);
+
+                if (distance < circle.radius + collectible.radius) {
+                    collectible.collected = true;
+
+                    let points = 0;
+                    if (collectible.type === 'coin') {
+                        points = 10;
+                    } else if (collectible.type === 'diamond') {
+                        points = 50;
+                    } else if (collectible.type === 'superDiamond') {
+                        points = 200;
+                    }
+
+                    score += points;
+
+                    // Add collection effect
+                    for (let i = 0; i < 20; i++) {
+                        particles.push({
+                            x: collectible.x,
+                            y: collectible.y,
+                            size: Math.random() * 4 + 2,
+                            color: collectible.type === 'coin' ? 'gold' : collectible.type === 'diamond' ? 'cyan' : 'magenta',
+                            velocityX: (Math.random() - 0.5) * 4,
+                            velocityY: (Math.random() - 0.5) * 4,
+                            life: 30,
+                        });
+                    }
+                }
+            });
+        }
+
+        // Collision detection with bars
+        let collisionPoint = null;
+
+        function checkCollisions() {
+            for (let bar of bars) {
+                // Check horizontal collision
+                if (circle.x + circle.radius > bar.x && circle.x - circle.radius < bar.x + bar.width) {
+                    // Check vertical collision
+                    if (
+                        circle.y - circle.radius < bar.holeY ||
+                        circle.y + circle.radius > bar.holeY + bar.holeHeight
+                    ) {
+                        // Collision detected
+                        collisionPoint = { x: circle.x, y: circle.y };
+                        triggerExplosion(collisionPoint.x, collisionPoint.y);
+                        gameOver();
+                        break;
+                    }
+                }
+            }
+        }
+
+        function checkBarPassing() {
+            bars.forEach((bar) => {
+                if (!bar.passed && bar.x + bar.width < circle.x - circle.radius) {
+                    bar.passed = true;
+                    score += 5; // Points for passing a bar
+                }
+            });
+        }
+
+        let gameIsOver = false;
+
+        // Particle effects for coins and explosion
+        let particles = [];
+
+        function triggerExplosion(x, y) {
+            for (let i = 0; i < 50; i++) {
+                particles.push({
+                    x: x,
+                    y: y,
+                    size: Math.random() * 4 + 2,
+                    color: `hsl(${Math.random() * 360}, 100%, 50%)`,
+                    velocityX: (Math.random() - 0.5) * 10,
+                    velocityY: (Math.random() - 0.5) * 10,
+                    life: 60,
+                });
+            }
+        }
+
+        function updateParticles() {
+            particles.forEach((p) => {
+                p.x += p.velocityX;
+                p.y += p.velocityY;
+                p.size *= 0.96;
+                p.life--;
+            });
+
+            particles = particles.filter((p) => p.life > 0 && p.size > 0.5);
+        }
+
+        function drawParticles() {
+            particles.forEach((p) => {
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                let gradient = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size);
+                gradient.addColorStop(0, p.color);
+                gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+                ctx.fillStyle = gradient;
+                ctx.fill();
+                ctx.closePath();
+            });
+        }
+
+        function gameOver() {
+            gameIsOver = true;
+            stopBarTimer();
+            stopCollectibleTimer();
+
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('highScore', highScore);
+            }
+
+            // Delay showing the game over screen to display the explosion
+            setTimeout(() => {
+                // Display Game Over Message
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                ctx.fillStyle = '#fff';
+                ctx.font = '50px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('Game Over', canvas.width / 2, canvas.height / 2 - 80);
+                ctx.font = '30px Arial';
+                ctx.fillText('Score: ' + score, canvas.width / 2, canvas.height / 2 - 30);
+                ctx.fillText('High Score: ' + highScore, canvas.width / 2, canvas.height / 2 + 10);
+
+                // Show restart button
+                restartButton.style.display = 'block';
+            }, 500); // Wait 1 second before showing game over screen
+        }
+
+        // Gradual speed increase
+        let speedIncreaseInterval = 5000; // Increase speed every 5 seconds
+        function increaseSpeed() {
+            barSpeed += 0.2;
+            collectibleSpeed = barSpeed;
+        }
+        let speedTimer = setInterval(increaseSpeed, speedIncreaseInterval);
+
+        function stopSpeedTimer() {
+            clearInterval(speedTimer);
+        }
+
+        // Visual effect when clicking restart
+        function triggerRestartEffect() {
+            let effectParticles = [];
+            for (let i = 0; i < 100; i++) {
+                effectParticles.push({
+                    x: canvas.width / 2,
+                    y: canvas.height / 2,
+                    size: Math.random() * 4 + 2,
+                    color: `hsl(${Math.random() * 360}, 100%, 50%)`,
+                    velocityX: (Math.random() - 0.5) * 15,
+                    velocityY: (Math.random() - 0.5) * 15,
+                    life: 50,
+                });
+            }
+
+            function updateEffectParticles() {
+                effectParticles.forEach((p) => {
+                    p.x += p.velocityX;
+                    p.y += p.velocityY;
+                    p.size *= 0.95;
+                    p.life--;
+                });
+
+                effectParticles = effectParticles.filter((p) => p.life > 0 && p.size > 0.5);
+
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                drawEffectParticles();
+
+                if (effectParticles.length > 0) {
+                    requestAnimationFrame(updateEffectParticles);
+                } else {
+                    // Start the game after the effect
+                    createParticles();
+                    gameLoop();
+                }
+            }
+
+            function drawEffectParticles() {
+                effectParticles.forEach((p) => {
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                    let gradient = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size);
+                    gradient.addColorStop(0, p.color);
+                    gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+                    ctx.fillStyle = gradient;
+                    ctx.fill();
+                    ctx.closePath();
+                });
+            }
+
+            updateEffectParticles();
+        }
+
+        restartButton.addEventListener('click', () => {
+            // Reset game state
+            bars = [];
+            collectibles = [];
+            particles = [];
+            score = 0;
+            gameIsOver = false;
+            circle.radius = 50;
+            circle.y = canvas.height / 2;
+            circle.expanding = false;
+            circle.shrinking = false;
+            collisionPoint = null;
+            barSpeed = 2; // Reset speed
+            collectibleSpeed = barSpeed;
+
+            restartButton.style.display = 'none';
+
+            // Start timers
+            startBarTimer();
+            startCollectibleTimer();
+            speedTimer = setInterval(increaseSpeed, speedIncreaseInterval);
+
+            // Trigger visual effect
+            triggerRestartEffect();
+        });
+
+        function gameLoop() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (!gameIsOver) {
+                updateCircle();
+                updateBars();
+                updateCollectibles();
+                updateParticles();
+
+                drawBars();
+                drawCollectibles();
+                drawParticles();
+                drawCircle();
+
+                checkCollectibleCollection();
+                checkCollisions();
+                checkBarPassing();
+
+                // Display Score
+                ctx.fillStyle = '#fff';
+                ctx.font = '20px Arial';
+                ctx.textAlign = 'left';
+                ctx.fillText(`Score: ${score}`, 20, 30);
+                ctx.fillText(`High Score: ${highScore}`, 20, 60);
+
+                requestAnimationFrame(gameLoop);
+            } else {
+                stopSpeedTimer();
+                // Continue to draw particles for explosion effect
+                updateParticles();
+                drawParticles();
+
+                if (particles.length > 0) {
+                    requestAnimationFrame(gameLoop);
+                }
+            }
+        }
+
+        // Start the game
+        createParticles();
+        gameLoop();
+    </script>
+</body>
+</html>
