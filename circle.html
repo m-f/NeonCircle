@@ -11,6 +11,7 @@
         }
         canvas {
             display: block;
+            touch-action: none; /* Prevent default touch actions on mobile */
         }
         button {
             position: absolute;
@@ -22,15 +23,46 @@
             display: none; /* Hidden by default */
             z-index: 1;
         }
+        /* Flashing icon styles */
+        #flashingIcon {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            z-index: 2;
+            animation: blink 1s infinite;
+            font-size: 100px;
+            color: white;
+            text-align: center;
+            user-select: none;
+            pointer-events: none;
+            line-height: 1;
+        }
+        #flashingIcon div {
+            margin: 10px 0;
+        }
+        @keyframes blink {
+            0% { opacity: 1; }
+            50% { opacity: 0.3; }
+            100% { opacity: 1; }
+        }
     </style>
 </head>
 <body>
     <canvas id="gameCanvas"></canvas>
+    <div id="flashingIcon">
+        <div>👇</div>
+        <div>🖱️</div>
+    </div>
     <button id="restartButton">Restart</button>
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const restartButton = document.getElementById('restartButton');
+        const flashingIcon = document.getElementById('flashingIcon');
 
         // Set canvas to full window size
         canvas.width = window.innerWidth;
@@ -43,6 +75,7 @@
         });
 
         let highScore = localStorage.getItem('highScore') || 0;
+        let tutorialCompleted = localStorage.getItem('tutorialCompleted') === 'true';
 
         // Circle properties
         let circle = {
@@ -96,29 +129,59 @@
             });
         }
 
-        // Mouse events
-        let mouse = {
+        // Input events
+        let input = {
             isPressed: false,
             y: circle.y,
         };
 
-        canvas.addEventListener('mousedown', () => {
-            mouse.isPressed = true;
+        let userHasInteracted = false;
+
+        // Mouse events
+        canvas.addEventListener('mousedown', (event) => {
+            input.isPressed = true;
+            input.y = event.clientY;
+            if (!userHasInteracted) hideFlashingIcon();
         });
 
         canvas.addEventListener('mouseup', () => {
-            mouse.isPressed = false;
+            input.isPressed = false;
         });
 
         canvas.addEventListener('mousemove', (event) => {
             // Restrict movement to vertical axis
-            mouse.y = event.clientY;
+            input.y = event.clientY;
         });
 
-        function updateCircle() {
-            circle.y = mouse.y;
+        // Touch events
+        canvas.addEventListener('touchstart', (event) => {
+            event.preventDefault();
+            input.isPressed = true;
+            const touch = event.touches[0];
+            input.y = touch.clientY;
+            if (!userHasInteracted) hideFlashingIcon();
+        });
 
-            if (mouse.isPressed && !circle.expanding) {
+        canvas.addEventListener('touchend', (event) => {
+            event.preventDefault();
+            input.isPressed = false;
+        });
+
+        canvas.addEventListener('touchmove', (event) => {
+            event.preventDefault();
+            const touch = event.touches[0];
+            input.y = touch.clientY;
+        });
+
+        function hideFlashingIcon() {
+            userHasInteracted = true;
+            flashingIcon.style.display = 'none';
+        }
+
+        function updateCircle() {
+            circle.y = input.y;
+
+            if (input.isPressed && !circle.expanding) {
                 circle.shrinking = true;
                 circle.radius -= 1; // Slow down shrink rate
                 if (circle.radius <= circle.minRadius) {
@@ -132,7 +195,7 @@
                     circle.radius = circle.maxRadius;
                     circle.expanding = false;
                 }
-            } else if (!mouse.isPressed && !circle.expanding) {
+            } else if (!input.isPressed && !circle.expanding) {
                 circle.radius += 2;
                 if (circle.radius > circle.maxRadius) circle.radius = circle.maxRadius;
             }
@@ -221,14 +284,14 @@
 
             let buffer = 20; // Define the buffer zone
 
-			let isInBar = bars.some((bar) => {
-				return (
-					collectible.x + collectible.radius + buffer > bar.x &&
-					collectible.x - collectible.radius - buffer < bar.x + bar.width &&
-					(collectible.y - collectible.radius - buffer < bar.holeY ||
-					 collectible.y + collectible.radius + buffer > bar.holeY + bar.holeHeight)
-				);
-			});
+            let isInBar = bars.some((bar) => {
+                return (
+                    collectible.x + collectible.radius + buffer > bar.x &&
+                    collectible.x - collectible.radius - buffer < bar.x + bar.width &&
+                    (collectible.y - collectible.radius - buffer < bar.holeY ||
+                     collectible.y + collectible.radius + buffer > bar.holeY + bar.holeHeight)
+                );
+            });
 
             if (!isInBar) {
                 collectibles.push(collectible);
@@ -317,6 +380,12 @@
 
                     score += points;
 
+                    // Check if score is at least 10 to hide tutorial permanently
+                    if (score >= 10 && !tutorialCompleted) {
+                        tutorialCompleted = true;
+                        localStorage.setItem('tutorialCompleted', 'true');
+                    }
+
                     // Add collection effect
                     for (let i = 0; i < 20; i++) {
                         particles.push({
@@ -360,6 +429,12 @@
                 if (!bar.passed && bar.x + bar.width < circle.x - circle.radius) {
                     bar.passed = true;
                     score += 5; // Points for passing a bar
+
+                    // Check if score is at least 10 to hide tutorial permanently
+                    if (score >= 10 && !tutorialCompleted) {
+                        tutorialCompleted = true;
+                        localStorage.setItem('tutorialCompleted', 'true');
+                    }
                 }
             });
         }
@@ -433,7 +508,7 @@
 
                 // Show restart button
                 restartButton.style.display = 'block';
-            }, 500); // Wait 1 second before showing game over screen
+            }, 500); // Wait 0.5 seconds before showing game over screen
         }
 
         // Gradual speed increase
@@ -515,8 +590,14 @@
             collisionPoint = null;
             barSpeed = 2; // Reset speed
             collectibleSpeed = barSpeed;
+            userHasInteracted = false;
 
             restartButton.style.display = 'none';
+
+            // Show flashing icon if tutorial not completed
+            if (!tutorialCompleted) {
+                flashingIcon.style.display = 'flex';
+            }
 
             // Start timers
             startBarTimer();
@@ -566,6 +647,9 @@
         }
 
         // Start the game
+        if (tutorialCompleted) {
+            flashingIcon.style.display = 'none';
+        }
         createParticles();
         gameLoop();
     </script>
